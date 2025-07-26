@@ -69,54 +69,14 @@ class CV_AestheticOverlay:
             raise RuntimeError(f"Missing dependencies: {MISSING_DEPS}")
         
         try:
-            # Handle batch processing for video frames
+            # Convert ComfyUI tensor to OpenCV format
             if isinstance(image, torch.Tensor):
                 if image.dim() == 4:
-                    # Batch of images [batch_size, height, width, channels]
-                    batch_size = image.shape[0]
-                    processed_frames = []
-                    
-                    for i in range(batch_size):
-                        # Process each frame in the batch
-                        frame = image[i]  # Single frame [height, width, channels]
-                        frame_np = (frame.cpu().numpy() * 255).astype(np.uint8)
-                        
-                        # Create working copy
-                        overlay = frame_np.copy()
-                        
-                        # Parse colors
-                        border_bgr = self._hex_to_bgr(border_color)
-                        text_bgr = self._hex_to_bgr(text_color)
-                        
-                        # Get detections/blobs for this frame
-                        frame_detections = detections[i] if detections and i < len(detections) else None
-                        frame_blobs = blobs[i] if blobs and i < len(blobs) else None
-                        
-                        # Draw detections if provided
-                        if frame_detections:
-                            self._draw_detections(overlay, frame_detections, border_bgr, text_bgr,
-                                                border_thickness, text_size, text_background_opacity)
-                        
-                        # Draw blobs if provided  
-                        if frame_blobs:
-                            self._draw_blobs(overlay, frame_blobs, border_bgr, text_bgr,
-                                           border_thickness, text_size, text_background_opacity)
-                        
-                        # Convert processed frame back to tensor
-                        processed_frame = torch.from_numpy(overlay).float() / 255.0
-                        processed_frames.append(processed_frame)
-                    
-                    # Stack all processed frames back into a batch
-                    output_tensor = torch.stack(processed_frames, dim=0)
-                    return (output_tensor,)
-                    
-                else:
-                    # Single image [height, width, channels]
-                    img_np = (image.cpu().numpy() * 255).astype(np.uint8)
+                    image = image[0]  # Take first image from batch
+                img_np = (image.cpu().numpy() * 255).astype(np.uint8)
             else:
                 img_np = np.array(image)
             
-            # Process single image (non-batch case)
             # Create working copy
             overlay = img_np.copy()
             

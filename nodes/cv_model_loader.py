@@ -48,10 +48,19 @@ class CV_ModelLoader:
             # Use custom path if provided, otherwise use default model
             model_path = custom_model_path if custom_model_path else model_name
             
-            # Load YOLO model
+            print(f"Loading YOLO model: {model_path}")
+            
+            # Load YOLO model - this will auto-download if needed
+            if not custom_model_path:
+                print(f"Note: {model_name} will be downloaded automatically if not present")
+            
             model = YOLO(model_path)
+            print(f"✓ YOLO model loaded successfully: {model_path}")
             
             return (model,)
             
         except Exception as e:
-            raise RuntimeError(f"Failed to load model: {str(e)}")
+            error_msg = f"Failed to load model '{model_path}': {str(e)}"
+            if "No such file or directory" in str(e) and not custom_model_path:
+                error_msg += f"\nNote: The model {model_name} should download automatically. Check your internet connection."
+            raise RuntimeError(error_msg)

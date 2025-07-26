@@ -1,104 +1,69 @@
-# ComfyUI-OpenCV-Overlays
+# ComfyUI-CVOverlay
 
-This project integrates OpenCV and YOLOv8 into ComfyUI, providing custom nodes for object detection, blob tracking, and aesthetic video overlays.
+Minimal OpenCV and YOLOv8 integration for ComfyUI with clean architecture and TouchDesigner-style blob tracking.
 
-## Overview
+## 🎯 Features
 
-The `ComfyUI-CVOverlay` package provides four main custom nodes:
+- **4 Essential Nodes** - Clean separation of detection and visualization
+- **YOLOv8 Object Detection** - Automatic model downloading  
+- **TouchDesigner Blob Tracking** - Bright/dark/motion blob detection
+- **Unified Art Direction** - Single overlay node handles all styling
+- **Standard ComfyUI Integration** - Works with existing image/video nodes
 
-- **CV Model Loader**: Loads YOLO models for object detection
-- **CV Object Detector**: Performs real-time object detection using YOLOv8
-- **CV Blob Tracker**: Implements blob tracking algorithms using OpenCV
-- **CV Aesthetic Overlay**: Applies customizable technical/surveillance-style overlays
+## 📦 Nodes
 
-## Features
+### 1. CV Model Loader
+Load YOLOv8 models (yolov8n.pt → yolov8x.pt) with automatic downloading
 
-✨ **Lightweight Integration**: Minimal dependencies, optimized for ComfyUI workflows  
-🎯 **Multiple Detection Models**: Support for YOLOv8n through YOLOv8x models  
-🎨 **Aesthetic Overlays**: Technical, surveillance, minimal, and cyberpunk styles  
-📹 **Video Processing**: Frame-by-frame processing for video workflows  
-🎛️ **Full Control**: Confidence thresholds, colors, opacity, line thickness  
+### 2. CV Object Detector  
+Pure object detection returning detection data (no visualization)
 
-## Installation
+### 3. CV Blob Tracker
+TouchDesigner-style blob tracking with 3 modes: bright_blobs, dark_blobs, motion_blobs
 
-### Method 1: Using ComfyUI-Manager (Recommended)
-1. Install [ComfyUI-Manager](https://github.com/ltdrdata/ComfyUI-Manager) if you haven't already
-2. Open ComfyUI-Manager in ComfyUI 
-3. Go to "Install Custom Nodes"
-4. Search for "ComfyUI-CVOverlay" and click Install
-5. Restart ComfyUI
+### 4. CV Aesthetic Overlay
+Unified art direction for both detection and blob data with simple controls:
+- **border_color** - Hex color for boxes/outlines (#00FF00)
+- **border_thickness** - Line thickness (1-10)
+- **text_color** - Hex color for text (#FFFFFF)
+- **text_background_opacity** - Black background behind text (0.0-1.0)
+- **text_size** - Text size (8-48)
 
-### Method 2: Manual Installation
-1. Navigate to your ComfyUI `custom_nodes` directory
-2. Clone this repository:
-   ```bash
-   git clone https://github.com/joosthel/ComfyUI-CVOverlay.git
-   ```
-3. Dependencies will be automatically installed by ComfyUI-Manager on next startup
-4. Restart ComfyUI
+## 🔄 Workflow
 
-**Note**: ComfyUI-Manager will automatically handle the installation of required dependencies (`opencv-python`, `ultralytics`, `torch`, etc.) when you restart ComfyUI.
-
-## Quick Start
-
-1. **Load Model**: Use `CV Model Loader` with `yolov8n.pt` (lightweight)
-2. **Detect Objects**: Connect your image to `CV Object Detector`
-3. **Apply Style**: Use `CV Aesthetic Overlay` to visualize detections
-4. **Save Result**: Connect to ComfyUI's Save Image node
-
-See [USAGE.md](USAGE.md) for detailed examples and workflows.
-
-## Node Reference
-
-### CV Model Loader
-- Loads YOLO models (n/s/m/l/x variants)
-- Supports custom trained models
-- Output: CV_MODEL
-
-### CV Object Detector  
-- Input: CV_MODEL, IMAGE
-- Configurable confidence and IOU thresholds
-- Output: IMAGE, CV_DETECTIONS
-
-### CV Blob Tracker
-- Input: IMAGE, (optional) CV_TRACKS
-- Multiple tracking algorithms
-- Output: IMAGE, CV_TRACKS
-
-### CV Aesthetic Overlay
-- Input: IMAGE, (optional) CV_DETECTIONS, CV_TRACKS
-- Multiple overlay styles and color schemes
-- Output: IMAGE
-
-## Project Structure
-
+### **For Images:**
 ```
-ComfyUI-CVOverlay/
-├── __init__.py              # ComfyUI node registration
-├── requirements.txt         # Dependencies
-├── USAGE.md                # Usage examples and workflows
-├── nodes/                  # Custom nodes
-│   ├── cv_model_loader.py
-│   ├── cv_object_detector.py
-│   ├── cv_blob_tracker.py
-│   └── cv_aesthetic_overlay.py
-└── utils/                  # Helper functions
-    ├── opencv_helpers.py
-    └── yolo_utils.py
+Load Image → Detection Node → CV Aesthetic Overlay → Preview Image
 ```
 
-## Requirements
+### **For Videos:**
+```
+VHS Load Video → Detection Node → CV Aesthetic Overlay → VHS Video Combine
+```
 
-- Python ≥ 3.8
-- ComfyUI
-- OpenCV ≥ 4.8.0
-- Ultralytics (YOLOv8) ≥ 8.0.0
-- PyTorch ≥ 1.11.0
+**Use standard ComfyUI nodes** for input/output: Load Image, VHS Video nodes, Preview Image, etc.
 
-## Contributing
+### **Video Batch Processing:**
+- **Automatic batch handling** - All CV nodes process every frame in video batches
+- **Frame-by-frame detection** - Object detection and blob tracking on each frame
+- **Consistent styling** - Art direction applied to all frames uniformly
+- **Memory efficient** - Processes video frames in batches without loading entire video
 
-Contributions welcome! Please submit pull requests or open issues for enhancements and bug fixes.
+## 🔧 TouchDesigner Parameters
 
-## License
+Blob tracker maintains TouchDesigner compatibility:
+- `threshold` - Brightness cutoff (0.0-1.0)
+- `min_area` - Minimum blob size (10-10000px) 
+- `max_area` - Maximum blob size (100-50000px)
+- `blur_size` - Gaussian blur (1-21, odd numbers)
+- `detection_mode` - bright/dark/motion blobs
 
-MIT License - see LICENSE file for details.
+## ⚡ Installation
+
+1. Clone to ComfyUI custom_nodes folder
+2. Restart ComfyUI (dependencies handled automatically)
+3. Find nodes under "CV" category
+
+## 📄 License
+
+MIT License

@@ -1,6 +1,6 @@
 """
 CV Object Detector Node for ComfyUI
-Performs object detection using YOLO models
+Clean object detection that outputs detection data only
 """
 
 # Handle missing dependencies gracefully
@@ -15,7 +15,7 @@ except ImportError as e:
 
 
 class CV_ObjectDetector:
-    """Detects objects in images using YOLO models"""
+    """Clean object detection without visual rendering"""
     
     @classmethod
     def INPUT_TYPES(cls):
@@ -29,12 +29,6 @@ class CV_ObjectDetector:
                     "max": 1.0,
                     "step": 0.01
                 }),
-                "iou_threshold": ("FLOAT", {
-                    "default": 0.45,
-                    "min": 0.0,
-                    "max": 1.0,
-                    "step": 0.01
-                }),
             }
         }
     
@@ -43,25 +37,59 @@ class CV_ObjectDetector:
     FUNCTION = "detect_objects"
     CATEGORY = "CV/Detection"
     
-    def detect_objects(self, model, image, confidence, iou_threshold):
-        """Perform object detection on input image"""
+    def detect_objects(self, model, image, confidence):
+        """Perform object detection and return data"""
         if not DEPENDENCIES_AVAILABLE:
-            raise RuntimeError(f"Missing dependencies: {MISSING_DEPS}. Please install requirements: pip install torch ultralytics opencv-python")
+            raise RuntimeError(f"Missing dependencies: {MISSING_DEPS}")
         
         try:
-            # Convert ComfyUI image tensor to PIL Image
+            # Handle batch processing for video frames
             if isinstance(image, torch.Tensor):
-                # ComfyUI images are in format (batch, height, width, channels)
                 if image.dim() == 4:
-                    image = image[0]  # Take first image from batch
-                # Convert from tensor to numpy
-                img_np = (image.cpu().numpy() * 255).astype(np.uint8)
-                img_pil = Image.fromarray(img_np)
+                    # Batch of images [batch_size, height, width, channels]
+                    batch_size = image.shape[0]
+                    all_detections = []
+                    
+                    for i in range(batch_size):
+                        # Process each frame in the batch
+                        frame = image[i]  # Single frame [height, width, channels]
+                        frame_np = (frame.cpu().numpy() * 255).astype(np.uint8)
+                        frame_pil = Image.fromarray(frame_np)
+                        
+                        # Run inference on this frame
+                        results = model(frame_pil, conf=confidence)
+                        
+                        # Extract detection data for this frame
+                        frame_detections = []
+                        if len(results) > 0 and results[0].boxes is not None:
+                            boxes = results[0].boxes
+                            for j in range(len(boxes)):
+                                box = boxes.xyxy[j].cpu().numpy()  # [x1, y1, x2, y2]
+                                conf = boxes.conf[j].cpu().numpy()
+                                cls = int(boxes.cls[j].cpu().numpy())
+                                class_name = model.names[cls] if hasattr(model, 'names') else str(cls)
+                                
+                                frame_detections.append({
+                                    'bbox': box.tolist(),
+                                    'confidence': float(conf),
+                                    'class': cls,
+                                    'class_name': class_name
+                                })
+                        
+                        all_detections.append(frame_detections)
+                    
+                    # Return original image batch + detections for all frames
+                    return (image, all_detections)
+                    
+                else:
+                    # Single image [height, width, channels]
+                    img_np = (image.cpu().numpy() * 255).astype(np.uint8)
+                    img_pil = Image.fromarray(img_np)
             else:
                 img_pil = image
             
-            # Run inference
-            results = model(img_pil, conf=confidence, iou=iou_threshold)
+            # Process single image (non-batch case)
+            results = model(img_pil, conf=confidence)
             
             # Extract detection data
             detections = []
@@ -71,25 +99,27 @@ class CV_ObjectDetector:
                     box = boxes.xyxy[i].cpu().numpy()  # [x1, y1, x2, y2]
                     conf = boxes.conf[i].cpu().numpy()
                     cls = int(boxes.cls[i].cpu().numpy())
+                    class_name = model.names[cls] if hasattr(model, 'names') else str(cls)
                     
                     detections.append({
                         'bbox': box.tolist(),
                         'confidence': float(conf),
                         'class': cls,
-                        'class_name': model.names[cls] if hasattr(model, 'names') else str(cls)
+                        'class_name': class_name
                     })
             
-            # Convert back to ComfyUI tensor format
-            if isinstance(image, torch.Tensor):
-                output_image = image
-            else:
-                # Convert PIL to tensor if needed
-                img_tensor = torch.from_numpy(np.array(img_pil)).float() / 255.0
-                if img_tensor.dim() == 3:
-                    img_tensor = img_tensor.unsqueeze(0)  # Add batch dimension
-                output_image = img_tensor
-            
-            return (output_image, detections)
+            # Return original image unchanged + detection data
+            return (image, detections)
             
         except Exception as e:
             raise RuntimeError(f"Object detection failed: {str(e)}")
+
+
+# Register the node
+NODE_CLASS_MAPPINGS = {
+    "CV_ObjectDetector": CV_ObjectDetector
+}
+
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "CV_ObjectDetector": "CV Object Detector"
+}

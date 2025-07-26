@@ -1,6 +1,6 @@
 """
 CV Blob Tracker Node for ComfyUI
-Tracks moving objects/blobs across video frames using OpenCV
+Clean blob tracking that outputs blob data only
 """
 
 # Handle missing dependencies gracefully
@@ -8,7 +8,6 @@ try:
     import cv2
     import torch
     import numpy as np
-    from PIL import Image
     DEPENDENCIES_AVAILABLE = True
 except ImportError as e:
     DEPENDENCIES_AVAILABLE = False
@@ -16,172 +15,190 @@ except ImportError as e:
 
 
 class CV_BlobTracker:
-    """Tracks blobs/objects across frames using OpenCV algorithms"""
+    """Clean blob tracking without visual rendering"""
     
-    def __init__(self):
-        self.prev_frame = None
-        self.tracker_type = None
-        self.trackers = []
+    # Class-level storage for video tracking
+    _video_states = {}
     
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
                 "image": ("IMAGE",),
-                "tracking_method": (["background_subtraction", "optical_flow", "contour_tracking"], {
-                    "default": "background_subtraction"
+                # TouchDesigner-style parameters
+                "threshold": ("FLOAT", {
+                    "default": 0.5,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01
                 }),
                 "min_area": ("INT", {
-                    "default": 500,
-                    "min": 50,
-                    "max": 10000,
-                    "step": 50
-                }),
-                "threshold": ("INT", {
-                    "default": 50,
+                    "default": 100,
                     "min": 10,
-                    "max": 255,
-                    "step": 5
+                    "max": 10000,
+                    "step": 10
+                }),
+                "max_area": ("INT", {
+                    "default": 5000,
+                    "min": 100,
+                    "max": 50000,
+                    "step": 100
+                }),
+                "blur_size": ("INT", {
+                    "default": 5,
+                    "min": 1,
+                    "max": 21,
+                    "step": 2
+                }),
+                "detection_mode": (["bright_blobs", "dark_blobs", "motion_blobs"], {
+                    "default": "bright_blobs"
                 }),
             },
             "optional": {
-                "previous_tracks": ("CV_TRACKS",),
+                "video_id": ("STRING", {
+                    "default": "default",
+                    "tooltip": "Unique ID for video tracking"
+                }),
+                "reset_tracking": ("BOOLEAN", {
+                    "default": False
+                }),
             }
         }
     
-    RETURN_TYPES = ("IMAGE", "CV_TRACKS")
-    RETURN_NAMES = ("image", "tracks")
+    RETURN_TYPES = ("IMAGE", "CV_BLOBS")
+    RETURN_NAMES = ("image", "blobs")
     FUNCTION = "track_blobs"
     CATEGORY = "CV/Tracking"
     
-    def track_blobs(self, image, tracking_method, min_area, threshold, previous_tracks=None):
-        """Track blobs in the current frame"""
+    def track_blobs(self, image, threshold, min_area, max_area, blur_size, detection_mode, 
+                   video_id="default", reset_tracking=False):
+        """Track blobs and return data"""
         if not DEPENDENCIES_AVAILABLE:
-            raise RuntimeError(f"Missing dependencies: {MISSING_DEPS}. Please install requirements: pip install opencv-python torch")
+            raise RuntimeError(f"Missing dependencies: {MISSING_DEPS}")
+        
+        # Reset tracking state if requested
+        if reset_tracking and video_id in self._video_states:
+            del self._video_states[video_id]
         
         try:
-            # Convert ComfyUI image tensor to OpenCV format
+            # Handle batch processing for video frames
             if isinstance(image, torch.Tensor):
                 if image.dim() == 4:
-                    image = image[0]  # Take first image from batch
-                img_np = (image.cpu().numpy() * 255).astype(np.uint8)
+                    # Batch of images [batch_size, height, width, channels]
+                    batch_size = image.shape[0]
+                    all_blobs = []
+                    
+                    for i in range(batch_size):
+                        # Process each frame in the batch
+                        frame = image[i]  # Single frame [height, width, channels]
+                        frame_np = (frame.cpu().numpy() * 255).astype(np.uint8)
+                        
+                        # Convert to grayscale for processing
+                        if len(frame_np.shape) == 3:
+                            gray = cv2.cvtColor(frame_np, cv2.COLOR_RGB2GRAY)
+                        else:
+                            gray = frame_np
+                        
+                        # Detect blobs for this frame
+                        frame_blobs = self._detect_blobs(gray, threshold, min_area, max_area, 
+                                                       blur_size, detection_mode, f"{video_id}_frame_{i}")
+                        all_blobs.append(frame_blobs)
+                    
+                    # Return original image batch + blob data for all frames
+                    return (image, all_blobs)
+                    
+                else:
+                    # Single image [height, width, channels]
+                    img_np = (image.cpu().numpy() * 255).astype(np.uint8)
             else:
                 img_np = np.array(image)
             
+            # Process single image (non-batch case)
             # Convert to grayscale for processing
             if len(img_np.shape) == 3:
                 gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
             else:
                 gray = img_np
             
-            tracks = []
+            # Detect blobs
+            blobs = self._detect_blobs(gray, threshold, min_area, max_area, blur_size, 
+                                     detection_mode, video_id)
             
-            if tracking_method == "background_subtraction":
-                tracks = self._background_subtraction_tracking(gray, min_area, threshold)
-            elif tracking_method == "optical_flow":
-                tracks = self._optical_flow_tracking(gray, previous_tracks)
-            elif tracking_method == "contour_tracking":
-                tracks = self._contour_tracking(gray, min_area, threshold)
-            
-            # Store current frame for next iteration
-            self.prev_frame = gray.copy()
-            
-            # Convert back to ComfyUI tensor format
-            if isinstance(image, torch.Tensor):
-                output_image = image
-            else:
-                img_tensor = torch.from_numpy(img_np).float() / 255.0
-                if img_tensor.dim() == 3:
-                    img_tensor = img_tensor.unsqueeze(0)
-                output_image = img_tensor
-            
-            return (output_image, tracks)
+            # Return original image unchanged + blob data
+            return (image, blobs)
             
         except Exception as e:
             raise RuntimeError(f"Blob tracking failed: {str(e)}")
     
-    def _background_subtraction_tracking(self, gray, min_area, threshold):
-        """Simple background subtraction tracking"""
-        tracks = []
+    def _detect_blobs(self, gray, threshold, min_area, max_area, blur_size, mode, video_id):
+        """Detect blobs using TouchDesigner-style parameters"""
+        blobs = []
         
-        if self.prev_frame is not None:
-            # Calculate frame difference
-            diff = cv2.absdiff(self.prev_frame, gray)
-            _, thresh = cv2.threshold(diff, threshold, 255, cv2.THRESH_BINARY)
+        # Ensure blur_size is odd
+        if blur_size % 2 == 0:
+            blur_size += 1
+        
+        # Apply blur
+        blurred = cv2.GaussianBlur(gray, (blur_size, blur_size), 0)
+        
+        if mode == "bright_blobs":
+            thresh_val = int(threshold * 255)
+            _, binary = cv2.threshold(blurred, thresh_val, 255, cv2.THRESH_BINARY)
             
-            # Find contours
-            contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        elif mode == "dark_blobs":
+            thresh_val = int(threshold * 255)
+            _, binary = cv2.threshold(blurred, thresh_val, 255, cv2.THRESH_BINARY_INV)
             
-            for contour in contours:
-                area = cv2.contourArea(contour)
-                if area > min_area:
-                    x, y, w, h = cv2.boundingRect(contour)
-                    center_x = x + w // 2
-                    center_y = y + h // 2
-                    
-                    tracks.append({
-                        'bbox': [x, y, x + w, y + h],
-                        'center': [center_x, center_y],
-                        'area': area,
-                        'confidence': min(area / (min_area * 10), 1.0)
-                    })
-        
-        return tracks
-    
-    def _optical_flow_tracking(self, gray, previous_tracks):
-        """Lucas-Kanade optical flow tracking"""
-        tracks = []
-        
-        if self.prev_frame is not None and previous_tracks:
-            # Extract previous points
-            prev_points = []
-            for track in previous_tracks:
-                if 'center' in track:
-                    prev_points.append([track['center']])
+        elif mode == "motion_blobs":
+            if video_id not in self._video_states:
+                self._video_states[video_id] = cv2.createBackgroundSubtractorMOG2(detectShadows=False)
             
-            if prev_points:
-                prev_points = np.array(prev_points, dtype=np.float32)
-                
-                # Calculate optical flow
-                new_points, status, error = cv2.calcOpticalFlowPyrLK(
-                    self.prev_frame, gray, prev_points, None
-                )
-                
-                # Keep only good points
-                good_new = new_points[status == 1]
-                
-                for i, point in enumerate(good_new):
-                    x, y = point.ravel()
-                    tracks.append({
-                        'center': [int(x), int(y)],
-                        'confidence': 0.8,
-                        'bbox': [int(x-20), int(y-20), int(x+20), int(y+20)]  # Approximate bbox
-                    })
+            back_sub = self._video_states[video_id]
+            binary = back_sub.apply(blurred)
         
-        return tracks
-    
-    def _contour_tracking(self, gray, min_area, threshold):
-        """Simple contour-based tracking"""
-        tracks = []
-        
-        # Apply threshold
-        _, thresh = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY)
+        # Clean up binary image
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
+        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
         
         # Find contours
-        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
-        for contour in contours:
+        # Extract blob data
+        for i, contour in enumerate(contours):
             area = cv2.contourArea(contour)
-            if area > min_area:
-                x, y, w, h = cv2.boundingRect(contour)
-                center_x = x + w // 2
-                center_y = y + h // 2
+            
+            if min_area <= area <= max_area:
+                # Calculate blob properties
+                moments = cv2.moments(contour)
+                if moments['m00'] != 0:
+                    center_x = int(moments['m10'] / moments['m00'])
+                    center_y = int(moments['m01'] / moments['m00'])
+                else:
+                    center_x, center_y = 0, 0
                 
-                tracks.append({
-                    'bbox': [x, y, x + w, y + h],
+                # Bounding box
+                x, y, w, h = cv2.boundingRect(contour)
+                
+                blob_data = {
+                    'id': i,
                     'center': [center_x, center_y],
+                    'bbox': [x, y, x + w, y + h],
                     'area': area,
-                    'confidence': min(area / (min_area * 5), 1.0)
-                })
+                    'contour': contour.tolist(),
+                    'width': w,
+                    'height': h
+                }
+                blobs.append(blob_data)
         
-        return tracks
+        return blobs
+
+
+# Register the node
+NODE_CLASS_MAPPINGS = {
+    "CV_BlobTracker": CV_BlobTracker
+}
+
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "CV_BlobTracker": "CV Blob Tracker"
+}
