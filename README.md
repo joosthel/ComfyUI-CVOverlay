@@ -19,15 +19,30 @@ Load YOLOv8 models (yolov8n.pt → yolov8x.pt) with automatic downloading to `Co
 Pure object detection returning detection data (no visualization)
 
 ### 3. CV Blob Tracker
-TouchDesigner-style blob tracking with 3 modes: bright_blobs, dark_blobs, motion_blobs
+Professional TouchDesigner-style blob tracking with 5 detection modes:
+- **Motion** - Background subtraction + frame differencing
+- **Bright Regions** - Adaptive bright area detection  
+- **Dark Regions** - Adaptive dark area detection
+- **Edge Density** - High-detail region detection
+- **Color Variance** - Local texture variation detection
+
+**Enhanced Features:**
+- Persistent blob tracking with unique IDs
+- Trajectory trails showing movement history
+- Technical surveillance aesthetic with corner brackets and crosshairs
+- Smart connection lines between related blobs
 
 ### 4. CV Aesthetic Overlay
-Unified art direction for both detection and blob data with simple controls:
+Unified art direction for both detection and blob data with surveillance-style controls:
 - **border_color** - Hex color for boxes/outlines (#00FF00)
 - **border_thickness** - Line thickness (1-10)
 - **text_color** - Hex color for text (#FFFFFF)
 - **text_background_opacity** - Black background behind text (0.0-1.0)
 - **text_size** - Text size (8-48)
+- **show_tracks** - Enable connecting lines between blobs
+- **track_color** - Track line color (#FF0080)
+- **track_thickness** - Track line thickness (1-5)
+- **track_opacity** - Track transparency (0.1-1.0)
 
 ## 🔄 Workflow
 
@@ -51,12 +66,14 @@ VHS Load Video → Detection Node → CV Aesthetic Overlay → VHS Video Combine
 
 ## 🔧 TouchDesigner Parameters
 
-Blob tracker maintains TouchDesigner compatibility:
-- `threshold` - Brightness cutoff (0.0-1.0)
-- `min_area` - Minimum blob size (10-10000px) 
-- `max_area` - Maximum blob size (100-50000px)
-- `blur_size` - Gaussian blur (1-21, odd numbers)
-- `detection_mode` - bright/dark/motion blobs
+Blob tracker maintains TouchDesigner compatibility with advanced controls:
+- `detection_mode` - Motion, bright/dark regions, edge density, color variance
+- `sensitivity` - Detection threshold (0.01-1.0)
+- `min_size/max_size` - Size filtering (10-20000px)
+- `blur_amount` - Gaussian preprocessing (1-15, odd numbers)
+- `noise_reduction` - Morphological cleaning (0.0-1.0)
+- `max_tracking_distance` - Blob tracking range (10-200px)
+- `track_persistence` - Lost blob retention (1-60 frames)
 
 ## ⚡ Installation
 

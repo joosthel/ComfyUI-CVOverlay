@@ -3,4 +3,5 @@ ultralytics
 torch
 torchvision
 numpy
+scipy
 Pillow
