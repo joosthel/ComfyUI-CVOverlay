@@ -13,7 +13,7 @@ Minimal OpenCV and YOLOv8 integration for ComfyUI with clean architecture and To
 ## 📦 Nodes
 
 ### 1. CV Model Loader
-Load YOLOv8 models (yolov8n.pt → yolov8x.pt) with automatic downloading
+Load YOLOv8 models (yolov8n.pt → yolov8x.pt) with automatic downloading to `ComfyUI/models/yolo/` folder
 
 ### 2. CV Object Detector  
 Pure object detection returning detection data (no visualization)
@@ -63,6 +63,11 @@ Blob tracker maintains TouchDesigner compatibility:
 1. Clone to ComfyUI custom_nodes folder
 2. Restart ComfyUI (dependencies handled automatically)
 3. Find nodes under "CV" category
+
+### **Model Storage:**
+- **YOLO models** download to `ComfyUI/models/yolo/`
+- **Follows ComfyUI conventions** for clean organization
+- **Reusable across sessions** - models persist in proper location
 
 ## 📄 License
 
