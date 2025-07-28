@@ -1,91 +1,77 @@
 # ComfyUI-CVOverlay
 
-Minimal OpenCV and YOLOv8 integration for ComfyUI with clean architecture and TouchDesigner-style blob tracking.
+Bring TouchDesigner's blob tracking aesthetics into ComfyUI. A small helper suite for adding computer vision effects to your image and video workflows.
 
-## 🎯 Features
+![CVOverlay Demo](demos/CVOverlay.png)
 
-- **4 Essential Nodes** - Clean separation of detection and visualization
-- **YOLOv8 Object Detection** - Automatic model downloading  
-- **TouchDesigner Blob Tracking** - Bright/dark/motion blob detection
-- **Unified Art Direction** - Single overlay node handles all styling
-- **Standard ComfyUI Integration** - Works with existing image/video nodes
+## What it does
 
-## 📦 Nodes
+This brings some popular TouchDesigner visual techniques into ComfyUI for quick experimentation and integration into existing workflows.
 
-### 1. CV Model Loader
-Load YOLOv8 models (yolov8n.pt → yolov8x.pt) with automatic downloading to `ComfyUI/models/yolo/` folder
+**Key Features:**
+- Bright spot detection with stable tracking
+- Plexus-style connections between tracked elements
+- Video batch processing that works with VHS nodes
+- YOLOv8 object detection with automatic model management
+- Simple art direction controls for styling
 
-### 2. CV Object Detector  
-Pure object detection returning detection data (no visualization)
+## Nodes (4 total)
 
-### 3. CV Blob Tracker
-Professional TouchDesigner-style blob tracking with 5 detection modes:
-- **Motion** - Background subtraction + frame differencing
-- **Bright Regions** - Adaptive bright area detection  
-- **Dark Regions** - Adaptive dark area detection
-- **Edge Density** - High-detail region detection
-- **Color Variance** - Local texture variation detection
+### CV Model Loader
+Downloads and manages YOLOv8 models automatically to `ComfyUI/models/yolo/`
 
-**Enhanced Features:**
-- Persistent blob tracking with unique IDs
-- Trajectory trails showing movement history
-- Technical surveillance aesthetic with corner brackets and crosshairs
-- Smart connection lines between related blobs
+### CV Object Detector  
+Standard object detection - returns data without visualization
 
-### 4. CV Aesthetic Overlay
-Unified art direction for both detection and blob data with surveillance-style controls:
-- **border_color** - Hex color for boxes/outlines (#00FF00)
-- **border_thickness** - Line thickness (1-10)
-- **text_color** - Hex color for text (#FFFFFF)
-- **text_background_opacity** - Black background behind text (0.0-1.0)
-- **text_size** - Text size (8-48)
-- **show_tracks** - Enable connecting lines between blobs
-- **track_color** - Track line color (#FF0080)
-- **track_thickness** - Track line thickness (1-5)
-- **track_opacity** - Track transparency (0.1-1.0)
+### CV Blob Tracker
+TouchDesigner-style blob tracking focused on bright spots:
+- `detection_threshold` - Sensitivity (lower = more sensitive)
+- `min_blob_size` / `max_blob_size` - Size filtering  
+- `blur_radius` - Stability control (higher = extends tracking borders, reduces noise)
+- `enable_plexus` - Connection lines between nearby blobs
+- `max_connections` - Limit plexus complexity
 
-## 🔄 Workflow
+### CV Aesthetic Overlay
+Unified technical visualization:
+- Corner brackets and crosshairs
+- Customizable colors and typography
+- Track lines and trajectory trails
+- Clean integration with ComfyUI's image/video pipeline
 
-### **For Images:**
+## Basic Workflow
+
+**Images:**
 ```
-Load Image → Detection Node → CV Aesthetic Overlay → Preview Image
+Load Image → CV Object Detector → CV Aesthetic Overlay → Preview
 ```
 
-### **For Videos:**
+**Videos:**
 ```
-VHS Load Video → Detection Node → CV Aesthetic Overlay → VHS Video Combine
+VHS Load Video → CV Blob Tracker → CV Aesthetic Overlay → VHS Video Combine
 ```
 
-**Use standard ComfyUI nodes** for input/output: Load Image, VHS Video nodes, Preview Image, etc.
+Works with standard ComfyUI nodes - no special setup required.
 
-### **Video Batch Processing:**
-- **Automatic batch handling** - All CV nodes process every frame in video batches
-- **Frame-by-frame detection** - Object detection and blob tracking on each frame
-- **Consistent styling** - Art direction applied to all frames uniformly
-- **Memory efficient** - Processes video frames in batches without loading entire video
+## Installation
 
-## 🔧 TouchDesigner Parameters
+```bash
+cd ComfyUI/custom_nodes
+git clone https://github.com/joosthel/ComfyUI-CVOverlay.git
+```
 
-Blob tracker maintains TouchDesigner compatibility with advanced controls:
-- `detection_mode` - Motion, bright/dark regions, edge density, color variance
-- `sensitivity` - Detection threshold (0.01-1.0)
-- `min_size/max_size` - Size filtering (10-20000px)
-- `blur_amount` - Gaussian preprocessing (1-15, odd numbers)
-- `noise_reduction` - Morphological cleaning (0.0-1.0)
-- `max_tracking_distance` - Blob tracking range (10-200px)
-- `track_persistence` - Lost blob retention (1-60 frames)
+Restart ComfyUI. Dependencies install automatically, models download on first use.
 
-## ⚡ Installation
+## Use Cases
 
-1. Clone to ComfyUI custom_nodes folder
-2. Restart ComfyUI (dependencies handled automatically)
-3. Find nodes under "CV" category
+- Motion graphics - Add tracking data to existing video workflows
+- Technical aesthetics - Clean visual styling for detected elements
+- Data visualization - Highlight movement and objects in footage
+- Creative experiments - TouchDesigner-style effects without leaving ComfyUI
 
-### **Model Storage:**
-- **YOLO models** download to `ComfyUI/models/yolo/`
-- **Follows ComfyUI conventions** for clean organization
-- **Reusable across sessions** - models persist in proper location
+## Notes
 
-## 📄 License
+This is a focused tool suite, not a comprehensive CV solution. Built for creators who want TouchDesigner's signature look in their ComfyUI workflows without complexity.
 
-MIT License
+This is just a small test to get the effects into ComfyUI. If you want any features, just shoot me a message at mail@joosthelfers.com.
+
+Licensed under MIT.
