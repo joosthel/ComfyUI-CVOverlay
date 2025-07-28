@@ -28,66 +28,78 @@ class CV_BlobTracker:
         return {
             "required": {
                 "image": ("IMAGE",),
-                # Core detection parameters
-                "detection_mode": (["motion", "bright_regions", "dark_regions", "edge_density", "color_variance"], {
-                    "default": "bright_regions"  # More reliable default than motion
-                }),
-                "sensitivity": ("FLOAT", {
-                    "default": 0.5,  # Higher default for better detection
+                
+                # Simplified Controls - Bright Spots Only
+                "detection_threshold": ("FLOAT", {
+                    "default": 0.75,  
                     "min": 0.01,
-                    "max": 1.0,
+                    "max": 1,
                     "step": 0.01,
-                    "tooltip": "Detection sensitivity"
+                    "tooltip": "Lower = more sensitive, Higher = only brightest spots"
                 }),
-                # Size filtering
-                "min_size": ("INT", {
-                    "default": 100,  # Larger minimum for better stability
+                
+                "min_blob_size": ("INT", {
+                    "default": 300,
                     "min": 10,
                     "max": 5000,
-                    "step": 10
+                    "step": 10,
+                    "tooltip": "Minimum blob size in pixels - filters out noise"
                 }),
-                "max_size": ("INT", {
-                    "default": 5000,  # Larger maximum for more flexibility
-                    "min": 100,
-                    "max": 20000,
-                    "step": 50
+                
+                "max_blob_size": ("INT", {
+                    "default": 12000,
+                    "min": 500,
+                    "max": 100000,
+                    "step": 100,
+                    "tooltip": "Maximum blob size in pixels - prevents huge regions"
                 }),
-                # Processing parameters
-                "blur_amount": ("INT", {
-                    "default": 5,  # Better noise reduction
+                
+                "blur_radius": ("INT", {
+                    "default": 20,
                     "min": 1,
-                    "max": 15,
-                    "step": 2
+                    "max": 100,
+                    "step": 2,
+                    "tooltip": "Blur radius for stability - higher values extend tracking borders and reduce noise"
                 }),
-                "noise_reduction": ("FLOAT", {
-                    "default": 0.3,  # More noise reduction by default
-                    "min": 0.0,
-                    "max": 1.0,
-                    "step": 0.05
-                }),
-                # Tracking parameters
-                "max_tracking_distance": ("INT", {
-                    "default": 80,  # Larger tracking distance
-                    "min": 10,
-                    "max": 200,
-                    "step": 5,
-                    "tooltip": "Max pixel distance for tracking same blob"
-                }),
-                "track_persistence": ("INT", {
-                    "default": 15,  # Longer persistence
+                
+                "max_blobs": ("INT", {
+                    "default": 50,  
                     "min": 1,
-                    "max": 60,
+                    "max": 1000, 
                     "step": 1,
-                    "tooltip": "Frames to keep tracking lost blobs"
+                    "tooltip": "Maximum number of tracked blobs"
+                }),
+                
+                # Plexus Controls
+                "enable_plexus": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "Enable plexus connections between blobs"
+                }),
+                
+                "max_connections": ("INT", {
+                    "default": 15,  # Lower default for cleaner look
+                    "min": 5,
+                    "max": 100,  # Reduced max
+                    "step": 1,
+                    "tooltip": "Maximum plexus connections"
+                }),
+                
+                "plexus_distance": ("INT", {
+                    "default": 200,  # Increased for better connections
+                    "min": 50,
+                    "max": 5000,
+                    "step": 10,
+                    "tooltip": "Maximum distance for plexus connections"
                 }),
             },
             "optional": {
                 "video_id": ("STRING", {
                     "default": "default",
-                    "tooltip": "Unique ID for video tracking"
+                    "tooltip": "Unique ID for this video sequence"
                 }),
                 "reset_tracking": ("BOOLEAN", {
-                    "default": False
+                    "default": False,
+                    "tooltip": "Reset all tracking memory"
                 }),
             }
         }
@@ -97,12 +109,20 @@ class CV_BlobTracker:
     FUNCTION = "track_blobs"
     CATEGORY = "CV/Tracking"
     
-    def track_blobs(self, image, detection_mode, sensitivity, min_size, max_size, 
-                   blur_amount, noise_reduction, max_tracking_distance, track_persistence,
+    def track_blobs(self, image, detection_threshold, min_blob_size, max_blob_size, blur_radius, max_blobs,
+                   enable_plexus, max_connections, plexus_distance,
                    video_id="default", reset_tracking=False):
-        """Advanced blob tracking with persistence and trajectory analysis"""
+        """Simplified bright spot tracking with relaxed/stable behavior"""
         if not DEPENDENCIES_AVAILABLE:
             raise RuntimeError(f"Missing dependencies: {MISSING_DEPS}")
+        
+        # Relaxed defaults for stable, non-twitchy tracking (other parameters)
+        noise_cleanup = 0.6  # More aggressive noise cleanup
+        max_movement_per_frame = 200  # Allow more movement for stability
+        memory_frames = 60  # Much longer memory (2+ seconds at 30fps)
+        chaos_reduction = True
+        stability_filter = 0.1  # Very permissive for stable tracking
+        tracking_confidence = 0.1  # Very low for easier connections
         
         # Reset tracking state if requested
         if reset_tracking:
@@ -138,11 +158,13 @@ class CV_BlobTracker:
                         else:
                             gray = frame_np
                         
-                        # Detect and track blobs for this frame
+                        # Detect and track blobs for this frame (bright spots only)
                         frame_blobs, frame_tracks = self._process_frame(
-                            gray, detection_mode, sensitivity, min_size, max_size,
-                            blur_amount, noise_reduction, max_tracking_distance, 
-                            track_persistence, f"{video_id}_frame_{i}"
+                            gray, detection_threshold, min_blob_size, max_blob_size, blur_radius,
+                            noise_cleanup, max_movement_per_frame, memory_frames, 
+                            chaos_reduction, stability_filter, tracking_confidence, enable_plexus,
+                            plexus_distance, max_connections, max_blobs,
+                            f"{video_id}_frame_{i}"
                         )
                         all_blobs.append(frame_blobs)
                         all_tracks.append(frame_tracks)
@@ -163,11 +185,12 @@ class CV_BlobTracker:
             else:
                 gray = img_np
             
-            # Detect and track blobs
+            # Detect and track blobs (bright spots only)
             blobs, tracks = self._process_frame(
-                gray, detection_mode, sensitivity, min_size, max_size,
-                blur_amount, noise_reduction, max_tracking_distance, 
-                track_persistence, video_id
+                gray, detection_threshold, min_blob_size, max_blob_size, blur_radius,
+                noise_cleanup, max_movement_per_frame, memory_frames, 
+                chaos_reduction, stability_filter, tracking_confidence, enable_plexus,
+                plexus_distance, max_connections, max_blobs, video_id
             )
             
             # Return original image unchanged + blob data + track data
@@ -176,172 +199,195 @@ class CV_BlobTracker:
         except Exception as e:
             raise RuntimeError(f"Blob tracking failed: {str(e)}")
             
-    def _process_frame(self, gray, detection_mode, sensitivity, min_size, max_size,
-                      blur_amount, noise_reduction, max_tracking_distance, 
-                      track_persistence, video_id):
-        """Process a single frame for blob detection and tracking"""
+    def _process_frame(self, gray, detection_threshold, min_blob_size, max_blob_size,
+                      blur_radius, noise_cleanup, max_movement_per_frame, memory_frames, 
+                      chaos_reduction, stability_filter, tracking_confidence, enable_plexus,
+                      plexus_distance, max_connections, max_blobs, video_id):
+        """Process frame with bright spot detection and relaxed tracking"""
         
-        # Ensure blur_amount is odd
-        if blur_amount % 2 == 0:
-            blur_amount += 1
+        # Ensure blur radius is odd
+        if blur_radius % 2 == 0:
+            blur_radius += 1
         
-        # Pre-processing
-        processed = cv2.GaussianBlur(gray, (blur_amount, blur_amount), 0)
+        # More aggressive pre-processing for stability
+        processed = cv2.GaussianBlur(gray, (blur_radius, blur_radius), 0)
         
-        # Advanced detection based on mode
-        if detection_mode == "motion":
-            binary = self._detect_motion(processed, sensitivity, video_id)
-        elif detection_mode == "bright_regions":
-            binary = self._detect_bright_regions(processed, sensitivity)
-        elif detection_mode == "dark_regions":
-            binary = self._detect_dark_regions(processed, sensitivity)
-        elif detection_mode == "edge_density":
-            binary = self._detect_edge_density(processed, sensitivity)
-        elif detection_mode == "color_variance":
-            binary = self._detect_color_variance(gray, sensitivity)  # Use original for color
+        # Apply chaos reduction preprocessing (always enabled for stability)
+        processed = cv2.medianBlur(processed, 5)  # Stronger median filter
+        processed = cv2.bilateralFilter(processed, 9, 75, 75)  # Stronger bilateral filter
         
-        # Noise reduction
-        if noise_reduction > 0:
-            kernel_size = max(3, int(noise_reduction * 10))
-            if kernel_size % 2 == 0:
-                kernel_size += 1
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
-            binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
-            binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+        # Bright spot detection only
+        binary = self._detect_bright_spots(processed, detection_threshold)
         
-        # Find contours
+        # More aggressive noise cleanup for stability
+        cleanup_size = max(5, int(noise_cleanup * 10))  # Larger cleanup
+        if cleanup_size % 2 == 0:
+            cleanup_size += 1
+        
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (cleanup_size, cleanup_size))
+        binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
+        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+        
+        # Additional smoothing pass for very stable blobs
+        binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
+        
+        # Find and filter contours
         contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
-        # Extract current frame blobs
+        # Extract blobs with stability metrics
         current_blobs = []
         for contour in contours:
             area = cv2.contourArea(contour)
             
-            if min_size <= area <= max_size:
-                # Calculate enhanced blob properties
+            if min_blob_size <= area <= max_blob_size:
+                # Calculate blob properties
                 moments = cv2.moments(contour)
-                if moments['m00'] != 0:
-                    center_x = int(moments['m10'] / moments['m00'])
-                    center_y = int(moments['m01'] / moments['m00'])
-                else:
+                if moments['m00'] == 0:
                     continue
                 
-                # Bounding box
+                center_x = int(moments['m10'] / moments['m00'])
+                center_y = int(moments['m01'] / moments['m00'])
                 x, y, w, h = cv2.boundingRect(contour)
                 
-                # Calculate additional properties for better tracking
+                # Calculate stability metrics
                 perimeter = cv2.arcLength(contour, True)
-                aspect_ratio = w / h if h > 0 else 1.0
-                extent = area / (w * h) if w * h > 0 else 0.0
-                solidity = area / cv2.contourArea(cv2.convexHull(contour)) if cv2.contourArea(cv2.convexHull(contour)) > 0 else 0.0
+                hull = cv2.convexHull(contour)
+                hull_area = cv2.contourArea(hull)
+                solidity = area / hull_area if hull_area > 0 else 0
                 
-                blob_data = {
-                    'center': [center_x, center_y],
-                    'bbox': [x, y, x + w, y + h],
-                    'area': area,
-                    'perimeter': perimeter,
-                    'aspect_ratio': aspect_ratio,
-                    'extent': extent,
-                    'solidity': solidity,
-                    'contour': contour.tolist(),
-                    'width': w,
-                    'height': h,
-                    'confidence': min(1.0, area / max_size)  # Normalized confidence
-                }
-                current_blobs.append(blob_data)
+                # Circularity (how round the blob is)
+                circularity = 4 * np.pi * area / (perimeter * perimeter) if perimeter > 0 else 0
+                
+                # Aspect ratio stability
+                aspect_ratio = w / h if h > 0 else 1
+                aspect_stability = min(aspect_ratio, 1/aspect_ratio)  # 0-1, 1 = square
+                
+                # Overall stability score
+                stability_score = (solidity * 0.4 + circularity * 0.3 + aspect_stability * 0.3)
+                
+                # Apply stability filter
+                if stability_score >= (1.0 - stability_filter):
+                    blob_data = {
+                        'center': [center_x, center_y],
+                        'bbox': [x, y, x + w, y + h],
+                        'area': area,
+                        'perimeter': perimeter,
+                        'solidity': solidity,
+                        'circularity': circularity,
+                        'aspect_ratio': aspect_ratio,
+                        'stability_score': stability_score,
+                        'contour': contour.tolist(),
+                        'width': w,
+                        'height': h,
+                        'confidence': min(1.0, stability_score)
+                    }
+                    current_blobs.append(blob_data)
         
-        # Track blobs across frames
-        tracked_blobs, tracks = self._update_tracking(
-            current_blobs, max_tracking_distance, track_persistence, video_id
+        # Update tracking with new parameters
+        tracked_blobs, tracks = self._update_tracking_improved(
+            current_blobs, max_movement_per_frame, memory_frames, 
+            tracking_confidence, enable_plexus, plexus_distance,
+            max_connections, max_blobs, video_id
         )
         
         return tracked_blobs, tracks
     
-    def _detect_motion(self, gray, sensitivity, video_id):
-        """Advanced motion detection for surveillance-style tracking"""
+    def _detect_motion_analysis(self, gray, threshold, learning_rate, video_id):
+        """Motion detection with controllable background learning"""
         if video_id not in self._video_states:
             self._video_states[video_id] = {
                 'bg_subtractor': cv2.createBackgroundSubtractorMOG2(
-                    detectShadows=False, 
-                    varThreshold=16 * sensitivity,
-                    history=100
+                    detectShadows=False,
+                    varThreshold=threshold * 100,  # Convert to MOG2 scale
+                    history=200
                 ),
                 'prev_frame': None
             }
         
         state = self._video_states[video_id]
         
-        # Background subtraction
-        fg_mask = state['bg_subtractor'].apply(gray)
+        # Update learning rate
+        fg_mask = state['bg_subtractor'].apply(gray, learningRate=learning_rate)
         
-        # Frame differencing for additional motion info
+        # Additional frame differencing for immediate motion
         if state['prev_frame'] is not None:
             frame_diff = cv2.absdiff(gray, state['prev_frame'])
-            _, diff_thresh = cv2.threshold(frame_diff, int(30 * sensitivity), 255, cv2.THRESH_BINARY)
+            diff_threshold = int(threshold * 255)
+            _, diff_mask = cv2.threshold(frame_diff, diff_threshold, 255, cv2.THRESH_BINARY)
             
-            # Combine background subtraction with frame differencing
-            combined = cv2.bitwise_or(fg_mask, diff_thresh)
+            # Combine both methods
+            combined = cv2.bitwise_or(fg_mask, diff_mask)
         else:
             combined = fg_mask
         
         state['prev_frame'] = gray.copy()
         return combined
-    
-    def _detect_bright_regions(self, gray, sensitivity):
-        """Detect bright regions with adaptive thresholding"""
-        # Calculate adaptive threshold based on image statistics
-        mean_val = np.mean(gray)
-        std_val = np.std(gray)
-        threshold_val = min(255, max(0, int(mean_val + std_val * (2.0 - sensitivity))))
+
+    def _detect_bright_spots(self, gray, threshold):
+        """Detect bright spots with enhanced stability for reduced twitching"""
+        # More conservative percentile-based thresholding
+        high_percentile = 100 - (threshold * 60)  # Less aggressive than before
+        threshold_val = np.percentile(gray, high_percentile)
         
-        _, binary = cv2.threshold(gray, threshold_val, 255, cv2.THRESH_BINARY)
+        # Ensure minimum threshold to avoid noise
+        threshold_val = max(threshold_val, 100)  # Minimum brightness threshold
+        
+        _, binary = cv2.threshold(gray, int(threshold_val), 255, cv2.THRESH_BINARY)
+        
+        # Additional stability: only keep blobs that are significantly brighter
+        # Create a more conservative mask
+        very_bright_threshold = min(255, threshold_val + 30)
+        _, very_bright = cv2.threshold(gray, int(very_bright_threshold), 255, cv2.THRESH_BINARY)
+        
+        # Combine both thresholds for more stable detection
+        # Use the very bright areas as "seeds" and grow them to the regular threshold
+        combined = cv2.bitwise_and(binary, cv2.dilate(very_bright, np.ones((5,5), np.uint8), iterations=1))
+        
+        return combined
+
+    def _detect_dark_spots(self, gray, threshold):
+        """Detect dark spots with precise control"""
+        # Use percentile-based thresholding for consistency
+        low_percentile = threshold * 80  # threshold 0.1 = 8th percentile
+        threshold_val = np.percentile(gray, low_percentile)
+        
+        _, binary = cv2.threshold(gray, int(threshold_val), 255, cv2.THRESH_BINARY_INV)
         return binary
+
+    def _detect_high_contrast_areas(self, gray, threshold):
+        """Detect areas with high local contrast"""
+        # Calculate local contrast using standard deviation
+        kernel_size = 9
+        mean_filter = cv2.boxFilter(gray.astype(np.float32), -1, (kernel_size, kernel_size))
+        sqr_filter = cv2.boxFilter((gray.astype(np.float32))**2, -1, (kernel_size, kernel_size))
+        local_std = np.sqrt(sqr_filter - mean_filter**2)
+        
+        # Threshold based on standard deviation
+        std_threshold = np.percentile(local_std, 100 - (threshold * 70))
+        _, binary = cv2.threshold(local_std, std_threshold, 255, cv2.THRESH_BINARY)
+        
+        return binary.astype(np.uint8)
+
+    def _detect_texture_regions(self, gray, threshold):
+        """Detect regions with high texture (edge density)"""
+        # Use Sobel operators for edge detection
+        sobel_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
+        sobel_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
+        edge_magnitude = np.sqrt(sobel_x**2 + sobel_y**2)
+        
+        # Smooth edge magnitude
+        edge_smooth = cv2.GaussianBlur(edge_magnitude, (5, 5), 0)
+        
+        # Threshold
+        edge_threshold = np.percentile(edge_smooth, 100 - (threshold * 60))
+        _, binary = cv2.threshold(edge_smooth, edge_threshold, 255, cv2.THRESH_BINARY)
+        
+        return binary.astype(np.uint8)
     
-    def _detect_dark_regions(self, gray, sensitivity):
-        """Detect dark regions with adaptive thresholding"""
-        # Calculate adaptive threshold based on image statistics
-        mean_val = np.mean(gray)
-        std_val = np.std(gray)
-        threshold_val = max(0, min(255, int(mean_val - std_val * (2.0 - sensitivity))))
-        
-        _, binary = cv2.threshold(gray, threshold_val, 255, cv2.THRESH_BINARY_INV)
-        return binary
-    
-    def _detect_edge_density(self, gray, sensitivity):
-        """Detect regions with high edge density"""
-        # Edge detection
-        edges = cv2.Canny(gray, 50, 150)
-        
-        # Create kernel for edge density calculation
-        kernel_size = max(3, int(20 * (1.0 - sensitivity)))
-        if kernel_size % 2 == 0:
-            kernel_size += 1
-        kernel = np.ones((kernel_size, kernel_size), np.float32) / (kernel_size * kernel_size)
-        
-        # Calculate edge density
-        edge_density = cv2.filter2D(edges.astype(np.float32), -1, kernel)
-        
-        # Threshold based on sensitivity
-        threshold_val = int(255 * sensitivity * 0.3)
-        _, binary = cv2.threshold(edge_density.astype(np.uint8), threshold_val, 255, cv2.THRESH_BINARY)
-        
-        return binary
-    
-    def _detect_color_variance(self, gray, sensitivity):
-        """Detect regions with high local variance"""
-        # Calculate local variance using Laplacian
-        laplacian = cv2.Laplacian(gray, cv2.CV_64F)
-        variance_map = np.abs(laplacian)
-        
-        # Normalize and threshold
-        variance_norm = cv2.normalize(variance_map, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-        threshold_val = int(255 * sensitivity * 0.4)
-        _, binary = cv2.threshold(variance_norm, threshold_val, 255, cv2.THRESH_BINARY)
-        
-        return binary
-    
-    def _update_tracking(self, current_blobs, max_distance, persistence, video_id):
-        """Update blob tracking with persistence and trajectory calculation"""
+    def _update_tracking_improved(self, current_blobs, max_movement, memory_frames, 
+                                 tracking_confidence, enable_plexus, plexus_distance,
+                                 max_connections, max_blobs, video_id):
+        """Update blob tracking with improved stability and confidence metrics"""
         # Ensure video_id is initialized in tracking dictionaries
         if video_id not in self._tracked_blobs:
             self._tracked_blobs[video_id] = {}
@@ -356,36 +402,53 @@ class CV_BlobTracker:
         
         if tracked_blobs and current_blobs:
             current_centers = np.array([blob['center'] for blob in current_blobs])
-            tracked_centers = np.array([blob['center'] for blob in tracked_blobs.values() if blob['active']])
+            tracked_list = [(blob_id, blob) for blob_id, blob in tracked_blobs.items() if blob['active']]
             
-            if len(tracked_centers) > 0:
+            if tracked_list:
+                tracked_centers = np.array([blob['center'] for _, blob in tracked_list])
                 distances = cdist(current_centers, tracked_centers)
                 
-                # Hungarian algorithm would be ideal here, but using greedy matching for simplicity
-                tracked_list = [(blob_id, blob) for blob_id, blob in tracked_blobs.items() if blob['active']]
-                
-                # Find best matches
+                # Enhanced matching with confidence scoring
                 for i in range(len(current_blobs)):
                     if i in assigned_current:
                         continue
                     
                     best_match = None
-                    best_distance = float('inf')
+                    best_confidence = 0.0
                     best_j = None
                     
                     for j, (blob_id, tracked_blob) in enumerate(tracked_list):
                         if j in assigned_tracked:
                             continue
                         
-                        if distances[i, j] < max_distance and distances[i, j] < best_distance:
-                            best_match = blob_id
-                            best_distance = distances[i, j]
-                            best_j = j
+                        distance = distances[i, j]
+                        if distance < max_movement:
+                            # Calculate matching confidence based on multiple factors
+                            distance_score = 1.0 - (distance / max_movement)
+                            
+                            # Size similarity
+                            current_area = current_blobs[i]['area']
+                            tracked_area = tracked_blob['area']
+                            size_ratio = min(current_area, tracked_area) / max(current_area, tracked_area)
+                            
+                            # Shape similarity
+                            current_solidity = current_blobs[i]['solidity']
+                            tracked_solidity = tracked_blob['solidity']
+                            shape_similarity = 1.0 - abs(current_solidity - tracked_solidity)
+                            
+                            # Overall confidence
+                            match_confidence = (distance_score * 0.5 + size_ratio * 0.3 + shape_similarity * 0.2)
+                            
+                            if match_confidence > (tracking_confidence * 0.5) and match_confidence > best_confidence:  # Lower threshold
+                                best_match = blob_id
+                                best_confidence = match_confidence
+                                best_j = j
                     
                     if best_match is not None:
                         # Update existing blob
                         current_blobs[i]['id'] = best_match
                         current_blobs[i]['age'] = tracked_blobs[best_match]['age'] + 1
+                        current_blobs[i]['tracking_confidence'] = best_confidence
                         
                         # Update trajectory
                         if 'trajectory' not in tracked_blobs[best_match]:
@@ -415,6 +478,7 @@ class CV_BlobTracker:
                 blob['active'] = True
                 blob['lost_frames'] = 0
                 blob['trajectory'] = [blob['center']]
+                blob['tracking_confidence'] = blob['stability_score']
                 
                 tracked_blobs[blob_id] = blob
         
@@ -423,21 +487,34 @@ class CV_BlobTracker:
         for blob_id, blob in tracked_blobs.items():
             if blob['active'] and blob_id not in active_blob_ids:
                 blob['lost_frames'] += 1
-                if blob['lost_frames'] > persistence:
+                if blob['lost_frames'] > memory_frames:
                     blob['active'] = False
         
-        # Prepare output
+        # Prepare output - Apply blob limiting based on certainty
         active_blobs = [blob for blob in tracked_blobs.values() if blob['active']]
         
-        # Generate track connections
-        tracks = self._generate_tracks(tracked_blobs)
+        # Sort by confidence and limit if max_blobs > 0
+        if max_blobs > 0 and len(active_blobs) > max_blobs:
+            # Sort by tracking confidence (certainty) in descending order
+            active_blobs.sort(key=lambda b: b.get('tracking_confidence', 0), reverse=True)
+            active_blobs = active_blobs[:max_blobs]
+        
+        # Generate track connections with plexus animation
+        if enable_plexus:
+            tracks = self._generate_plexus_connections(
+                active_blobs, plexus_distance, max_connections, tracking_confidence
+            )
+        else:
+            tracks = self._generate_tracks_improved(tracked_blobs, tracking_confidence)
         
         return active_blobs, tracks
     
-    def _generate_tracks(self, tracked_blobs):
-        """Generate track lines between nearby blobs"""
+    def _generate_tracks_improved(self, tracked_blobs, confidence_threshold):
+        """Generate track lines between nearby blobs with improved confidence scoring"""
         tracks = []
-        active_blobs = [blob for blob in tracked_blobs.values() if blob['active'] and blob['age'] > 2]
+        active_blobs = [blob for blob in tracked_blobs.values() 
+                       if blob['active'] and blob['age'] > 1 and  # Reduced age requirement
+                       blob.get('tracking_confidence', 0) > (confidence_threshold * 0.3)]  # Much lower threshold
         
         # Generate connections between nearby blobs
         for i, blob1 in enumerate(active_blobs):
@@ -448,21 +525,109 @@ class CV_BlobTracker:
                 # Calculate distance
                 distance = np.sqrt((center1[0] - center2[0])**2 + (center1[1] - center2[1])**2)
                 
-                # Connect if within reasonable distance and similar properties
-                max_connection_distance = 150
+                # More generous connection distance
+                avg_size = (blob1['area'] + blob2['area']) / 2
+                max_connection_distance = min(300, max(150, np.sqrt(avg_size) * 4))  # Increased
+                
                 if distance < max_connection_distance:
-                    # Consider blob properties for connection strength
-                    area_ratio = min(blob1['area'], blob2['area']) / max(blob1['area'], blob2['area'])
+                    # Enhanced connection strength calculation
+                    size_similarity = min(blob1['area'], blob2['area']) / max(blob1['area'], blob2['area'])
+                    stability_avg = (blob1['stability_score'] + blob2['stability_score']) / 2
+                    confidence_avg = (blob1.get('tracking_confidence', 0.5) + 
+                                    blob2.get('tracking_confidence', 0.5)) / 2
+                    distance_factor = 1.0 - (distance / max_connection_distance)
                     
-                    if area_ratio > 0.3:  # Similar sized blobs
+                    # Overall connection strength
+                    connection_strength = (size_similarity * 0.3 + 
+                                         stability_avg * 0.3 + 
+                                         confidence_avg * 0.2 + 
+                                         distance_factor * 0.2)
+                    
+                    if connection_strength > (confidence_threshold * 0.3):  # Much lower threshold
                         track = {
                             'start': center1,
                             'end': center2,
                             'distance': distance,
-                            'strength': area_ratio * (1.0 - distance / max_connection_distance),
-                            'blob_ids': [blob1['id'], blob2['id']]
+                            'strength': connection_strength,
+                            'blob_ids': [blob1['id'], blob2['id']],
+                            'confidence': confidence_avg,
+                            'alpha': min(1.0, distance_factor * 2.0)  # More visible
                         }
                         tracks.append(track)
+        
+        return tracks
+    
+    def _generate_plexus_connections(self, active_blobs, max_distance, max_connections, confidence_threshold):
+        """Generate plexus-style connections between nearby blobs"""
+        tracks = []
+        
+        # Much more permissive filtering for plexus
+        qualified_blobs = [blob for blob in active_blobs 
+                          if blob.get('tracking_confidence', 0) > 0.1]  # Very low threshold
+        
+        # Calculate all possible connections with distances
+        potential_connections = []
+        
+        for i, blob1 in enumerate(qualified_blobs):
+            for j, blob2 in enumerate(qualified_blobs[i+1:], i+1):
+                center1 = blob1['center']
+                center2 = blob2['center']
+                
+                # Calculate distance
+                distance = np.sqrt((center1[0] - center2[0])**2 + (center1[1] - center2[1])**2)
+                
+                if distance <= max_distance:
+                    # Simplified connection strength for better visibility
+                    distance_factor = 1.0 - (distance / max_distance)
+                    confidence_avg = (blob1.get('tracking_confidence', 0.5) + 
+                                    blob2.get('tracking_confidence', 0.5)) / 2
+                    
+                    # More generous connection strength
+                    connection_strength = distance_factor * 0.7 + confidence_avg * 0.3
+                    
+                    potential_connections.append({
+                        'start': center1,
+                        'end': center2,
+                        'distance': distance,
+                        'strength': connection_strength,
+                        'blob_ids': [blob1['id'], blob2['id']],
+                        'confidence': confidence_avg,
+                        'alpha': min(1.0, distance_factor * 1.2 + 0.3),  # More visible with minimum alpha
+                        'plexus': True  # Mark as plexus connection
+                    })
+        
+        # Sort by connection strength and limit
+        potential_connections.sort(key=lambda x: x['strength'], reverse=True)
+        tracks = potential_connections[:max_connections]
+        
+        # Ensure we always have some connections if blobs exist
+        if len(qualified_blobs) > 1 and len(tracks) == 0:
+            # Force at least one connection between closest blobs
+            min_distance = float('inf')
+            closest_pair = None
+            
+            for i, blob1 in enumerate(qualified_blobs):
+                for j, blob2 in enumerate(qualified_blobs[i+1:], i+1):
+                    center1 = blob1['center']
+                    center2 = blob2['center']
+                    distance = np.sqrt((center1[0] - center2[0])**2 + (center1[1] - center2[1])**2)
+                    
+                    if distance < min_distance and distance <= max_distance:
+                        min_distance = distance
+                        closest_pair = (blob1, blob2, distance)
+            
+            if closest_pair:
+                blob1, blob2, distance = closest_pair
+                tracks = [{
+                    'start': blob1['center'],
+                    'end': blob2['center'],
+                    'distance': distance,
+                    'strength': 0.8,
+                    'blob_ids': [blob1['id'], blob2['id']],
+                    'confidence': 0.8,
+                    'alpha': 0.8,
+                    'plexus': True
+                }]
         
         return tracks
 

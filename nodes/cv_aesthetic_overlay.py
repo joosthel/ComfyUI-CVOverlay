@@ -22,20 +22,20 @@ class CV_AestheticOverlay:
         return {
             "required": {
                 "image": ("IMAGE",),
-                # Simple Art Direction Controls
+                # Improved Art Direction Controls
                 "border_color": ("STRING", {
-                    "default": "#00FF00",
-                    "tooltip": "Border color in hex (e.g., #00FF00)"
+                    "default": "00FF00",
+                    "tooltip": "Border color in hex (without #, e.g., 00FF00 for green)"
                 }),
                 "border_thickness": ("INT", {
                     "default": 2,
                     "min": 1,
-                    "max": 10,
+                    "max": 20,  # Increased from 10
                     "step": 1
                 }),
                 "text_color": ("STRING", {
-                    "default": "#FFFFFF",
-                    "tooltip": "Text color in hex (e.g., #FFFFFF)"
+                    "default": "FFFFFF",
+                    "tooltip": "Text color in hex (without #, e.g., FFFFFF for white)"
                 }),
                 "text_background_opacity": ("FLOAT", {
                     "default": 0.7,
@@ -46,28 +46,28 @@ class CV_AestheticOverlay:
                 }),
                 "text_size": ("INT", {
                     "default": 16,
-                    "min": 8,
-                    "max": 48,
+                    "min": 6,
+                    "max": 72,
                     "step": 2
                 }),
-                # Track connection controls
+                # Improved Track Controls
                 "show_tracks": ("BOOLEAN", {
                     "default": True,
                     "tooltip": "Show connecting lines between tracked blobs"
                 }),
                 "track_color": ("STRING", {
-                    "default": "#FF0080",
-                    "tooltip": "Track line color in hex (e.g., #FF0080)"
+                    "default": "FF0080",
+                    "tooltip": "Track line color in hex (without #, e.g., FF0080 for magenta)"
                 }),
                 "track_thickness": ("INT", {
                     "default": 1,
                     "min": 1,
-                    "max": 5,
+                    "max": 15,   # Increased from 5
                     "step": 1
                 }),
                 "track_opacity": ("FLOAT", {
                     "default": 0.6,
-                    "min": 0.1,
+                    "min": 0.0,  # Reduced from 0.1
                     "max": 1.0,
                     "step": 0.05
                 }),
@@ -218,30 +218,46 @@ class CV_AestheticOverlay:
         
         # Create overlay for tracks with opacity
         overlay = img.copy()
+        final_opacity = opacity
         
         for track in tracks:
             start_point = tuple(map(int, track['start']))
             end_point = tuple(map(int, track['end']))
             
-            # Vary line style based on connection strength
-            strength = track.get('strength', 1.0)
+            # Check if this is a plexus connection
+            is_plexus = track.get('plexus', False)
             
-            if strength > 0.7:
-                # Strong connection - solid line
-                cv2.line(overlay, start_point, end_point, track_color, thickness)
-            elif strength > 0.4:
-                # Medium connection - dashed line
-                self._draw_dashed_line(overlay, start_point, end_point, track_color, thickness)
+            if is_plexus:
+                # Get alpha for plexus connections
+                track_alpha = track.get('alpha', 1.0)
+                final_opacity = max(0.3, opacity * track_alpha)  # Ensure minimum visibility
+                
+                # Make plexus connections more visible with glow effect
+                cv2.line(overlay, start_point, end_point, track_color, max(2, thickness + 1))
+                # Add inner bright line
+                if thickness > 1:
+                    lighter_color = tuple(min(255, int(c * 1.5)) for c in track_color)
+                    cv2.line(overlay, start_point, end_point, lighter_color, thickness)
             else:
-                # Weak connection - dotted line
-                self._draw_dotted_line(overlay, start_point, end_point, track_color, thickness)
+                # Regular track connections - vary line style based on connection strength
+                strength = track.get('strength', 1.0)
+                
+                if strength > 0.7:
+                    # Strong connection - solid line
+                    cv2.line(overlay, start_point, end_point, track_color, thickness)
+                elif strength > 0.4:
+                    # Medium connection - dashed line
+                    self._draw_dashed_line(overlay, start_point, end_point, track_color, thickness)
+                else:
+                    # Weak connection - dotted line
+                    self._draw_dotted_line(overlay, start_point, end_point, track_color, thickness)
             
             # Add small connection indicators at endpoints
-            cv2.circle(overlay, start_point, 2, track_color, -1)
-            cv2.circle(overlay, end_point, 2, track_color, -1)
+            cv2.circle(overlay, start_point, 3, track_color, -1)
+            cv2.circle(overlay, end_point, 3, track_color, -1)
         
         # Apply opacity to tracks
-        cv2.addWeighted(img, 1 - opacity, overlay, opacity, 0, img)
+        cv2.addWeighted(img, 1 - final_opacity, overlay, final_opacity, 0, img)
     
     def _draw_dashed_line(self, img, start, end, color, thickness):
         """Draw a dashed line"""
@@ -294,13 +310,11 @@ class CV_AestheticOverlay:
             age = blob.get('age', 1)
             confidence = blob.get('confidence', 1.0)
             
-            # Color intensity based on tracking age and confidence
-            alpha = min(1.0, age / 10.0) * confidence
-            adjusted_border = tuple(int(c * alpha) for c in border_color)
-            adjusted_text = tuple(int(c * alpha) for c in text_color)
+            # Use the input colors directly instead of adjusting them
+            # This allows user color control to work properly
             
             # Main bounding box
-            cv2.rectangle(img, (x, y), (x2, y2), adjusted_border, thickness)
+            cv2.rectangle(img, (x, y), (x2, y2), border_color, thickness)
             
             # Corner markers for technical look
             corner_size = min(w, h) // 8
@@ -308,22 +322,22 @@ class CV_AestheticOverlay:
             for corner_x, corner_y in corners:
                 # Draw corner brackets
                 if corner_x == x and corner_y == y:  # Top-left
-                    cv2.line(img, (corner_x, corner_y), (corner_x + corner_size, corner_y), adjusted_border, thickness)
-                    cv2.line(img, (corner_x, corner_y), (corner_x, corner_y + corner_size), adjusted_border, thickness)
+                    cv2.line(img, (corner_x, corner_y), (corner_x + corner_size, corner_y), border_color, thickness)
+                    cv2.line(img, (corner_x, corner_y), (corner_x, corner_y + corner_size), border_color, thickness)
                 elif corner_x == x2 and corner_y == y:  # Top-right
-                    cv2.line(img, (corner_x, corner_y), (corner_x - corner_size, corner_y), adjusted_border, thickness)
-                    cv2.line(img, (corner_x, corner_y), (corner_x, corner_y + corner_size), adjusted_border, thickness)
+                    cv2.line(img, (corner_x, corner_y), (corner_x - corner_size, corner_y), border_color, thickness)
+                    cv2.line(img, (corner_x, corner_y), (corner_x, corner_y + corner_size), border_color, thickness)
                 elif corner_x == x and corner_y == y2:  # Bottom-left
-                    cv2.line(img, (corner_x, corner_y), (corner_x + corner_size, corner_y), adjusted_border, thickness)
-                    cv2.line(img, (corner_x, corner_y), (corner_x, corner_y - corner_size), adjusted_border, thickness)
+                    cv2.line(img, (corner_x, corner_y), (corner_x + corner_size, corner_y), border_color, thickness)
+                    cv2.line(img, (corner_x, corner_y), (corner_x, corner_y - corner_size), border_color, thickness)
                 elif corner_x == x2 and corner_y == y2:  # Bottom-right
-                    cv2.line(img, (corner_x, corner_y), (corner_x - corner_size, corner_y), adjusted_border, thickness)
-                    cv2.line(img, (corner_x, corner_y), (corner_x, corner_y - corner_size), adjusted_border, thickness)
+                    cv2.line(img, (corner_x, corner_y), (corner_x - corner_size, corner_y), border_color, thickness)
+                    cv2.line(img, (corner_x, corner_y), (corner_x, corner_y - corner_size), border_color, thickness)
             
             # Center crosshair
             crosshair_size = 5
-            cv2.line(img, (center_x - crosshair_size, center_y), (center_x + crosshair_size, center_y), adjusted_text, 1)
-            cv2.line(img, (center_x, center_y - crosshair_size), (center_x, center_y + crosshair_size), adjusted_text, 1)
+            cv2.line(img, (center_x - crosshair_size, center_y), (center_x + crosshair_size, center_y), text_color, 1)
+            cv2.line(img, (center_x, center_y - crosshair_size), (center_x, center_y + crosshair_size), text_color, 1)
             
             # Trajectory trail if available
             if 'trajectory' in blob and len(blob['trajectory']) > 1:
@@ -331,7 +345,8 @@ class CV_AestheticOverlay:
                 for i in range(1, len(trajectory)):
                     start_pt = tuple(map(int, trajectory[i-1]))
                     end_pt = tuple(map(int, trajectory[i]))
-                    trail_alpha = (i / len(trajectory)) * alpha * 0.7
+                    # Use border color for trajectory with fade effect
+                    trail_alpha = (i / len(trajectory)) * 0.7
                     trail_color = tuple(int(c * trail_alpha) for c in border_color)
                     cv2.line(img, start_pt, end_pt, trail_color, 1)
             
@@ -349,41 +364,64 @@ class CV_AestheticOverlay:
             
             for i, line in enumerate(info_lines):
                 line_y = info_y - (i * (text_size + 2))
-                self._draw_text_with_background(img, line, (info_x, line_y), adjusted_text,
-                                              text_size, text_bg_opacity * alpha)
+                self._draw_text_with_background(img, line, (info_x, line_y), text_color,
+                                              text_size, text_bg_opacity)
 
     def _draw_text_with_background(self, img, text, pos, text_color, text_size, bg_opacity):
-        """Draw text with semi-transparent black background"""
+        """Draw text with semi-transparent black background - improved sizing"""
         font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = text_size / 30.0  # Scale to reasonable size
+        font_scale = max(0.3, text_size / 40.0)  # Better scaling, minimum readable size
+        thickness = max(1, int(text_size / 16))  # Scale thickness with text size
         
         # Get text dimensions
-        (text_width, text_height), baseline = cv2.getTextSize(text, font, font_scale, 1)
+        (text_width, text_height), baseline = cv2.getTextSize(text, font, font_scale, thickness)
         
         # Draw black background rectangle
         x, y = pos
         bg_color = (0, 0, 0)  # Black background
         
-        # Create background rectangle
+        # Create background rectangle with better padding
+        padding = max(2, text_size // 8)
         overlay = img.copy()
-        cv2.rectangle(overlay, (x - 2, y - text_height - 2), 
-                     (x + text_width + 2, y + baseline + 2), bg_color, -1)
-        
+        cv2.rectangle(overlay, (x - padding, y - text_height - padding), 
+                    (x + text_width + padding, y + baseline + padding), bg_color, -1)
+
         # Apply background opacity
-        cv2.addWeighted(img, 1 - bg_opacity, overlay, bg_opacity, 0, img)
+        if bg_opacity > 0:
+            cv2.addWeighted(img, 1 - bg_opacity, overlay, bg_opacity, 0, img)
         
-        # Draw text
-        cv2.putText(img, text, (x, y), font, font_scale, text_color, 1)
+        # Draw text with proper thickness
+        cv2.putText(img, text, (x, y), font, font_scale, text_color, thickness)
     
     def _hex_to_bgr(self, hex_color):
-        """Convert hex color to BGR tuple"""
+        """Convert hex color to BGR tuple with improved error handling"""
         try:
-            # Remove # if present
-            hex_color = hex_color.lstrip('#')
+            # Remove # if present and clean the string
+            hex_color = str(hex_color).strip().lstrip('#').upper()
+            
+            # Ensure we have exactly 6 characters
+            if len(hex_color) == 3:
+                # Convert short form (RGB) to long form (RRGGBB)
+                hex_color = ''.join([c*2 for c in hex_color])
+            elif len(hex_color) != 6:
+                # Invalid length, use default
+                print(f"Warning: Invalid hex color '{hex_color}', using default green")
+                return (0, 255, 0)
+            
+            # Validate hex characters
+            if not all(c in '0123456789ABCDEF' for c in hex_color):
+                print(f"Warning: Invalid hex color '{hex_color}', using default green")
+                return (0, 255, 0)
+            
             # Convert to RGB then BGR for OpenCV
-            rgb = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
-            return (rgb[2], rgb[1], rgb[0])  # BGR format
-        except:
+            r = int(hex_color[0:2], 16)
+            g = int(hex_color[2:4], 16)
+            b = int(hex_color[4:6], 16)
+            
+            return (b, g, r)  # BGR format for OpenCV
+            
+        except Exception as e:
+            print(f"Error converting hex color '{hex_color}': {e}, using default green")
             return (0, 255, 0)  # Default green
 
 
